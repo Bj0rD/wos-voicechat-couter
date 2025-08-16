@@ -156,6 +156,8 @@ The bot will now speak the countdowns instead of just logging them to console!
 ## Contributing
 
 Feel free to submit issues and enhancement requests!
+If you like the project you can buy me a coffee :P
+https://buymeacoffee.com/bj0rd
 
 ## License
 
