@@ -135,7 +135,8 @@ class CommandHandler {
   async registerCommands() {
     try {
       const { REST, Routes } = require('discord.js');
-      const config = require('../config.json');
+      const path = require('path');
+      const config = require(path.join(__dirname, '../config.json'));
       
       const rest = new REST({ version: '10' }).setToken(config.token);
       

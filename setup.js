@@ -21,7 +21,8 @@ async function askQuestion(question) {
 async function setup() {
   try {
     // Check if config.json already exists
-    if (fs.existsSync('config.json')) {
+    const configPath = path.join(process.cwd(), 'config.json');
+    if (fs.existsSync(configPath)) {
       const overwrite = await askQuestion('config.json already exists. Overwrite? (y/N): ');
       if (overwrite.toLowerCase() !== 'y') {
         console.log('Setup cancelled.');
@@ -44,7 +45,7 @@ async function setup() {
       guildId: guildId
     };
 
-    fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
     console.log('\n✅ config.json created successfully!');
 
     // Ask about TTS provider
@@ -52,7 +53,7 @@ async function setup() {
     console.log('----------------------------');
     console.log('Available providers:');
     console.log('1. console - Logs to console (default)');
-    console.log('2. local - Uses system TTS commands');
+    console.log('2. local - Uses cross-platform TTS (Windows/macOS/Linux)');
     console.log('3. google - Google Cloud Text-to-Speech');
     console.log('4. azure - Microsoft Azure Speech Services');
     console.log('5. polly - Amazon Polly');
@@ -86,7 +87,8 @@ TTS_PROVIDER=${ttsProvider}
 # AWS_REGION=us-east-1
 `;
 
-    fs.writeFileSync('.env', envContent);
+    const envPath = path.join(process.cwd(), '.env');
+    fs.writeFileSync(envPath, envContent);
     console.log('\n✅ .env file created successfully!');
 
     // Install dependencies
@@ -116,7 +118,8 @@ TTS_PROVIDER=${ttsProvider}
       console.log(`\n📝 Note: You're using ${ttsProvider} TTS. Make sure to:`);
       switch (ttsProvider) {
         case 'local':
-          console.log('   - Install system TTS tools (say, espeak, etc.)');
+          console.log('   - Cross-platform TTS automatically detected');
+          console.log('   - Windows: Uses SAPI, macOS: Uses say, Linux: Uses espeak');
           break;
         case 'google':
           console.log('   - Set up Google Cloud project and credentials');

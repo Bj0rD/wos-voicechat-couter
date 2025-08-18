@@ -2,6 +2,7 @@ const { createAudioResource } = require('@discordjs/voice');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const say = require('say');
 
 class TTSService {
   constructor() {
@@ -21,7 +22,7 @@ class TTSService {
     if (this.libraryInitialized) return;
 
     try {
-      const { exec, execFile } = require('child_process');
+      const { execFile } = require('child_process');
       const ffmpegPath = require('ffmpeg-static');
 
       // Ensure library directory exists
@@ -56,12 +57,17 @@ class TTSService {
           continue;
         }
 
-        // Generate the number
-        const rawFile = path.join(libraryDir, `raw_${i}.aiff`);
-        await run(`say -o "${rawFile}" -v "Samantha" -r 170 "${i}."`);
+        // Generate the number using cross-platform say package
+        const rawFile = path.join(libraryDir, `raw_${i}.wav`);
+        await new Promise((resolve, reject) => {
+          say.export(`${i}.`, 'Samantha', 1.0, rawFile, (error) => {
+            if (error) reject(error);
+            else resolve();
+          });
+        });
         
-        // Pad/truncate to exactly 1.000s
-        await runFfmpeg(['-y', '-i', rawFile, '-af', 'apad=pad_dur=1,atrim=0:1', '-ar', '48000', '-ac', '2', numberFile]);
+        // Pad/truncate to exactly 1.000s with better quality settings
+        await runFfmpeg(['-y', '-i', rawFile, '-af', 'apad=pad_dur=1,atrim=0:1', '-ar', '48000', '-ac', '2', '-sample_fmt', 's16', numberFile]);
         
         // Clean up raw file
         try { fs.unlinkSync(rawFile); } catch (_) {}
@@ -111,7 +117,7 @@ class TTSService {
 
     // Include voice and algo version to avoid cross-version cache collisions
     const payload = {
-      v: 'sync-v3', // Updated version for library-based generation
+      v: 'sync-v4', // Updated version for improved audio quality
       voice: 'Samantha',
       rate: 170,
       players: normalized,
@@ -137,19 +143,12 @@ class TTSService {
         return createAudioResource(cachedPath);
       }
 
-      const { exec, execFile } = require('child_process');
+      const { execFile } = require('child_process');
       const ffmpegPath = require('ffmpeg-static');
 
       // Ensure temp dir
       const tempDir = path.join(__dirname, '../temp');
       if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-
-      const run = (cmd) => new Promise((resolve, reject) => {
-        exec(cmd, (err, stdout, stderr) => {
-          if (err) return reject(err);
-          resolve({ stdout, stderr });
-        });
-      });
 
       const runFfmpeg = (args) => new Promise((resolve, reject) => {
         execFile(ffmpegPath, args, (err, stdout, stderr) => {
@@ -171,8 +170,20 @@ class TTSService {
       introScript += `${firstPlayer.name} ready. Three. Two. One. Go. `;
 
       const ts = Date.now();
-      const introFile = path.join(tempDir, `intro_${ts}.aiff`);
-      await run(`say -o "${introFile}" -v "Samantha" -r 170 "${introScript}"`);
+      const introRaw = path.join(tempDir, `intro_raw_${ts}.wav`);
+      const introFile = path.join(tempDir, `intro_${ts}.wav`);
+      
+      // Generate intro with consistent quality
+      await new Promise((resolve, reject) => {
+        say.export(introScript, 'Samantha', 1.0, introRaw, (error) => {
+          if (error) reject(error);
+          else resolve();
+        });
+      });
+      
+      // Process intro to match library quality
+      await runFfmpeg(['-y', '-i', introRaw, '-ar', '48000', '-ac', '2', '-sample_fmt', 's16', introFile]);
+      try { fs.unlinkSync(introRaw); } catch (_) {}
 
       // Use pre-generated number library instead of generating each number
       const numberFiles = [];
@@ -183,35 +194,47 @@ class TTSService {
         } else {
           // Fallback: generate the number if not in library
           console.warn(`Number ${i} not found in library, generating...`);
-          const raw = path.join(tempDir, `raw_${i}_${ts}.aiff`);
+          const raw = path.join(tempDir, `raw_${i}_${ts}.wav`);
           const seg = path.join(tempDir, `seg_${i}_${ts}.wav`);
-          await run(`say -o "${raw}" -v "Samantha" -r 170 "${i}."`);
-          await runFfmpeg(['-y', '-i', raw, '-af', 'apad=pad_dur=1,atrim=0:1', '-ar', '48000', '-ac', '2', seg]);
+          await new Promise((resolve, reject) => {
+            say.export(`${i}.`, 'Samantha', 1.0, raw, (error) => {
+              if (error) reject(error);
+              else resolve();
+            });
+          });
+          await runFfmpeg(['-y', '-i', raw, '-af', 'apad=pad_dur=1,atrim=0:1', '-ar', '48000', '-ac', '2', '-sample_fmt', 's16', seg]);
           numberFiles.push(seg);
           try { fs.unlinkSync(raw); } catch (_) {}
         }
       }
 
       // Create final phrase clip: "Sequence complete."
-      const finalAiff = path.join(tempDir, `final_${ts}.aiff`);
-      await run(`say -o "${finalAiff}" -v "Samantha" -r 170 "Sequence complete."`);
+      const finalRaw = path.join(tempDir, `final_raw_${ts}.wav`);
       const finalWav = path.join(tempDir, `final_${ts}.wav`);
-      await runFfmpeg(['-y', '-i', finalAiff, '-ar', '48000', '-ac', '2', finalWav]);
-      try { fs.unlinkSync(finalAiff); } catch (_) {}
+      
+      await new Promise((resolve, reject) => {
+        say.export("Sequence complete.", 'Samantha', 1.0, finalRaw, (error) => {
+          if (error) reject(error);
+          else resolve();
+        });
+      });
+      
+      // Process final phrase to match library quality
+      await runFfmpeg(['-y', '-i', finalRaw, '-ar', '48000', '-ac', '2', '-sample_fmt', 's16', finalWav]);
+      try { fs.unlinkSync(finalRaw); } catch (_) {}
 
       // Concat: intro + library numbers + final line
       const listFile = path.join(tempDir, `list_${ts}.txt`);
       const outputFile = path.join(tempDir, `sync_countdown_${cacheKey}.wav`);
 
       // Ensure intro is consistent format for concat; re-encode intro
-      const introWav = path.join(tempDir, `intro_${ts}.wav`);
-      await runFfmpeg(['-y', '-i', introFile, '-ar', '48000', '-ac', '2', introWav]);
-      try { fs.unlinkSync(introFile); } catch (_) {}
+                const introWav = introFile; // Already in WAV format
 
       const concatFiles = [introWav, ...numberFiles, finalWav];
       fs.writeFileSync(listFile, concatFiles.map(f => `file '${f.replace(/'/g, "'\\''")}'`).join('\n'));
 
-      await runFfmpeg(['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-c:a', 'pcm_s16le', outputFile]);
+      // Use better concatenation settings to preserve audio quality
+      await runFfmpeg(['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2', outputFile]);
 
       // Cleanup intermediates (keep final output for playback)
       try { fs.unlinkSync(introWav); } catch (_) {}
@@ -234,10 +257,9 @@ class TTSService {
     }
   }
 
-  // Local TTS using system commands (kept for compatibility)
+  // Local TTS using cross-platform say package
   async localTTS(text, options = {}) {
     try {
-      const { exec } = require('child_process');
       const fs = require('fs');
       const path = require('path');
       
@@ -248,13 +270,13 @@ class TTSService {
       }
       
       // Generate unique filename
-      const outputFile = path.join(tempDir, `tts_${Date.now()}.aiff`);
+      const outputFile = path.join(tempDir, `tts_${Date.now()}.wav`);
       
-      // Use macOS 'say' command to generate audio with English voice
+      // Use cross-platform say package to generate audio
       return new Promise((resolve, reject) => {
-        exec(`say -o "${outputFile}" -v "Samantha" -r 150 "${text}"`, (error) => {
+        say.export(text, 'Samantha', 1.0, outputFile, (error) => {
           if (error) {
-            console.error('Say command error:', error);
+            console.error('Say package error:', error);
             reject(error);
           } else {
             // Wait a bit for file to be written

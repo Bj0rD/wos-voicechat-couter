@@ -104,11 +104,18 @@ npm run dev
 
 The bot now provides **actual voice announcements** in Discord voice channels using:
 
-- **Local TTS (Default)** - Uses macOS `say` command for immediate voice output
+- **Local TTS (Default)** - Uses cross-platform `say` npm package for immediate voice output
 - **Google Cloud Text-to-Speech** - For cloud-based voice synthesis
 - **Amazon Polly** - AWS-powered voice generation
 - **Microsoft Azure Speech Services** - Enterprise-grade TTS
 - **Console Logging** - Fallback for debugging
+
+### Cross-Platform Compatibility
+
+The bot now works on **Windows**, **macOS**, and **Linux**:
+- **Windows**: Uses Windows SAPI (Speech API)
+- **macOS**: Uses built-in `say` command
+- **Linux**: Uses `espeak` (if installed) or falls back to other TTS engines
 
 ### Voice Output
 - ✅ **Real-time voice countdowns** in Discord voice channels

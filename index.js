@@ -2,7 +2,8 @@ const { Client, GatewayIntentBits, Collection } = require('discord.js');
 const { PlayerManager } = require('./src/PlayerManager');
 const { CommandHandler } = require('./src/CommandHandler');
 const { VoiceManager } = require('./src/VoiceManager');
-const config = require('./config.json');
+const path = require('path');
+const config = require(path.join(__dirname, 'config.json'));
 
 const client = new Client({
   intents: [
