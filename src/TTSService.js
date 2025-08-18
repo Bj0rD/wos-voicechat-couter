@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const say = require('say');
+const { exec, execFile } = require('child_process');
 
 class TTSService {
   constructor() {
@@ -10,11 +11,84 @@ class TTSService {
     this.audioCache = new Map(); // key -> filePath
     this.numberLibrary = new Map(); // number -> filePath
     this.libraryInitialized = false;
+    this.platform = process.platform;
   }
 
   // Set the TTS provider
   setProvider(provider) {
     this.provider = provider;
+  }
+
+  // Cross-platform TTS generation with fallbacks
+  async generateCrossPlatformTTS(text, outputFile) {
+    try {
+      // Try the say package first
+      return new Promise((resolve, reject) => {
+        say.export(text, 'Samantha', 1.0, outputFile, (error) => {
+          if (error) {
+            console.warn(`Say package failed: ${error.message}, trying platform-specific fallback...`);
+            // Fall back to platform-specific commands
+            this.generatePlatformSpecificTTS(text, outputFile)
+              .then(resolve)
+              .catch(reject);
+          } else {
+            resolve();
+          }
+        });
+      });
+    } catch (error) {
+      // If say package fails completely, use platform-specific fallback
+      return this.generatePlatformSpecificTTS(text, outputFile);
+    }
+  }
+
+  // Platform-specific TTS fallback
+  async generatePlatformSpecificTTS(text, outputFile) {
+    const platform = this.platform;
+    
+    try {
+      if (platform === 'win32') {
+        // Windows: Use PowerShell with SAPI
+        const command = `powershell.exe -Command "Add-Type -AssemblyName System.Speech; $synthesizer = New-Object System.Speech.Synthesis.SpeechSynthesizer; $synthesizer.SelectVoice('Microsoft Zira Desktop'); $synthesizer.SetOutputToWaveFile('${outputFile}'); $synthesizer.Speak('${text}'); $synthesizer.Dispose()"`;
+        await new Promise((resolve, reject) => {
+          exec(command, (error) => {
+            if (error) reject(error);
+            else resolve();
+          });
+        });
+      } else if (platform === 'darwin') {
+        // macOS: Use say command
+        const command = `say -o "${outputFile}" -v "Samantha" -r 170 "${text}"`;
+        await new Promise((resolve, reject) => {
+          exec(command, (error) => {
+            if (error) reject(error);
+            else resolve();
+          });
+        });
+      } else {
+        // Linux: Try espeak, then festival
+        try {
+          const command = `espeak -w "${outputFile}" "${text}"`;
+          await new Promise((resolve, reject) => {
+            exec(command, (error) => {
+              if (error) reject(error);
+              else resolve();
+            });
+          });
+        } catch (espeakError) {
+          // Fallback to festival
+          const command = `echo "${text}" | festival --tts --output "${outputFile}"`;
+          await new Promise((resolve, reject) => {
+            exec(command, (error) => {
+              if (error) reject(error);
+              else resolve();
+            });
+          });
+        }
+      }
+    } catch (error) {
+      throw new Error(`Platform-specific TTS failed for ${platform}: ${error.message}`);
+    }
   }
 
   // Initialize the number library (pre-generate numbers 1-200)
@@ -57,14 +131,9 @@ class TTSService {
           continue;
         }
 
-        // Generate the number using cross-platform say package
+        // Generate the number using cross-platform TTS with fallbacks
         const rawFile = path.join(libraryDir, `raw_${i}.wav`);
-        await new Promise((resolve, reject) => {
-          say.export(`${i}.`, 'Samantha', 1.0, rawFile, (error) => {
-            if (error) reject(error);
-            else resolve();
-          });
-        });
+        await this.generateCrossPlatformTTS(`${i}.`, rawFile);
         
         // Pad/truncate to exactly 1.000s with better quality settings
         await runFfmpeg(['-y', '-i', rawFile, '-af', 'apad=pad_dur=1,atrim=0:1', '-ar', '48000', '-ac', '2', '-sample_fmt', 's16', numberFile]);
@@ -117,9 +186,10 @@ class TTSService {
 
     // Include voice and algo version to avoid cross-version cache collisions
     const payload = {
-      v: 'sync-v4', // Updated version for improved audio quality
+      v: 'sync-v5', // Updated version for cross-platform TTS with fallbacks
       voice: 'Samantha',
       rate: 170,
+      platform: this.platform,
       players: normalized,
     };
 
@@ -174,12 +244,7 @@ class TTSService {
       const introFile = path.join(tempDir, `intro_${ts}.wav`);
       
       // Generate intro with consistent quality
-      await new Promise((resolve, reject) => {
-        say.export(introScript, 'Samantha', 1.0, introRaw, (error) => {
-          if (error) reject(error);
-          else resolve();
-        });
-      });
+      await this.generateCrossPlatformTTS(introScript, introRaw);
       
       // Process intro to match library quality
       await runFfmpeg(['-y', '-i', introRaw, '-ar', '48000', '-ac', '2', '-sample_fmt', 's16', introFile]);
@@ -196,12 +261,7 @@ class TTSService {
           console.warn(`Number ${i} not found in library, generating...`);
           const raw = path.join(tempDir, `raw_${i}_${ts}.wav`);
           const seg = path.join(tempDir, `seg_${i}_${ts}.wav`);
-          await new Promise((resolve, reject) => {
-            say.export(`${i}.`, 'Samantha', 1.0, raw, (error) => {
-              if (error) reject(error);
-              else resolve();
-            });
-          });
+          await this.generateCrossPlatformTTS(`${i}.`, raw);
           await runFfmpeg(['-y', '-i', raw, '-af', 'apad=pad_dur=1,atrim=0:1', '-ar', '48000', '-ac', '2', '-sample_fmt', 's16', seg]);
           numberFiles.push(seg);
           try { fs.unlinkSync(raw); } catch (_) {}
@@ -212,12 +272,7 @@ class TTSService {
       const finalRaw = path.join(tempDir, `final_raw_${ts}.wav`);
       const finalWav = path.join(tempDir, `final_${ts}.wav`);
       
-      await new Promise((resolve, reject) => {
-        say.export("Sequence complete.", 'Samantha', 1.0, finalRaw, (error) => {
-          if (error) reject(error);
-          else resolve();
-        });
-      });
+      await this.generateCrossPlatformTTS("Sequence complete.", finalRaw);
       
       // Process final phrase to match library quality
       await runFfmpeg(['-y', '-i', finalRaw, '-ar', '48000', '-ac', '2', '-sample_fmt', 's16', finalWav]);
@@ -257,7 +312,7 @@ class TTSService {
     }
   }
 
-  // Local TTS using cross-platform say package
+  // Local TTS using cross-platform TTS with fallbacks
   async localTTS(text, options = {}) {
     try {
       const fs = require('fs');
@@ -272,34 +327,29 @@ class TTSService {
       // Generate unique filename
       const outputFile = path.join(tempDir, `tts_${Date.now()}.wav`);
       
-      // Use cross-platform say package to generate audio
+      // Use cross-platform TTS with fallbacks to generate audio
+      await this.generateCrossPlatformTTS(text, outputFile);
+      
+      // Wait a bit for file to be written
       return new Promise((resolve, reject) => {
-        say.export(text, 'Samantha', 1.0, outputFile, (error) => {
-          if (error) {
-            console.error('Say package error:', error);
-            reject(error);
-          } else {
-            // Wait a bit for file to be written
+        setTimeout(() => {
+          if (fs.existsSync(outputFile)) {
+            // Create audio resource from the generated file
+            const audioResource = createAudioResource(outputFile);
+            resolve(audioResource);
+            
+            // Clean up file after a delay
             setTimeout(() => {
-              if (fs.existsSync(outputFile)) {
-                // Create audio resource from the generated file
-                const audioResource = createAudioResource(outputFile);
-                resolve(audioResource);
-                
-                // Clean up file after a delay
-                setTimeout(() => {
-                  try {
-                    fs.unlinkSync(outputFile);
-                  } catch (cleanupError) {
-                    console.log('Cleanup error (non-critical):', cleanupError.message);
-                  }
-                }, 10000); // Clean up after 10 seconds
-              } else {
-                reject(new Error('Audio file was not created'));
+              try {
+                fs.unlinkSync(outputFile);
+              } catch (cleanupError) {
+                console.log('Cleanup error (non-critical):', cleanupError.message);
               }
-            }, 500);
+            }, 10000); // Clean up after 10 seconds
+          } else {
+            reject(new Error('Audio file was not created'));
           }
-        });
+        }, 500);
       });
       
     } catch (error) {
