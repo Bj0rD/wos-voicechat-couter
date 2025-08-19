@@ -63,17 +63,29 @@ Each group's attacks arrive simultaneously at their respective target times!
 
 ## Setup Instructions
 
-### 1. Prerequisites
+### 🐳 Docker Deployment (Recommended)
+
+For the easiest setup with guaranteed cross-platform compatibility:
+
+1. **Clone the repository**
+2. **Create `config/config.json`** with your Discord bot credentials
+3. **Run `./deploy.sh`**
+
+See [DOCKER.md](DOCKER.md) for detailed Docker instructions.
+
+### 🔧 Manual Setup
+
+#### 1. Prerequisites
 - Node.js 16.9.0 or higher
 - Discord Bot Token
 - Discord Application with proper permissions
 
-### 2. Install Dependencies
+#### 2. Install Dependencies
 ```bash
 npm install
 ```
 
-### 3. Configure the Bot
+#### 3. Configure the Bot
 1. Edit `config.json` with your bot credentials:
 ```json
 {
@@ -90,7 +102,7 @@ npm install
    - Speak in Voice Channels
    - Use Voice Activity
 
-### 4. Run the Bot
+#### 4. Run the Bot
 ```bash
 npm start
 ```

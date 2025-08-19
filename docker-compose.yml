@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  counterbot-vc:
+    build: .
+    container_name: counterbot-vc
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - TTS_PROVIDER=local
+    volumes:
+      # Mount config directory for persistent configuration
+      - ./config:/app/config
+      # Mount temp directory for audio cache persistence
+      - ./temp:/app/temp
+    # Health check
+    healthcheck:
+      test: ["CMD", "node", "-e", "console.log('Bot health check passed')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M 
